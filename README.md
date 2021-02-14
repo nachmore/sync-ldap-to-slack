@@ -1,0 +1,1 @@
+# sync-ldap-to-slack
