@@ -19,127 +19,127 @@ def ldap_get_group_users(url, base, attribute, group):
 class Slack(object):
   """Abstract away some of the interactions with Slack"""
 
-    def __init__(self, token):
-      self.token = token
-      self.client = None
-      self._user_id_cache = {}
-      self._display_name_cache = {}
+  def __init__(self, token):
+    self.token = token
+    self.client = None
+    self._user_id_cache = {}
+    self._display_name_cache = {}
 
-    def _get_client(self):
-      if (not self.client):
-        self.client = WebClient(token=self.token)
-      
-      return self.client
+  def _get_client(self):
+    if (not self.client):
+      self.client = WebClient(token=self.token)
+    
+    return self.client
 
-    def _update_cache(self, user):
-      """We keep a cache from `display_name` -> `user` and Slack `id` -> `user`"""
+  def _update_cache(self, user):
+    """We keep a cache from `display_name` -> `user` and Slack `id` -> `user`"""
 
-      self._display_name_cache[user['profile']['display_name']] = user
-      self._user_id_cache[user['id']] = user
+    self._display_name_cache[user['profile']['display_name']] = user
+    self._user_id_cache[user['id']] = user
 
-    def get_user_by_display_name(self, display_name):
-      if (display_name in self._display_name_cache):
-        return self._display_name_cache[display_name]
+  def get_user_by_display_name(self, display_name):
+    if (display_name in self._display_name_cache):
+      return self._display_name_cache[display_name]
 
-      """
-      This is cheating... horribly. Slack can either retrieve a user if you already know
-      their ID (useless when syncing a user name from LDAP) or via email (useful, but
-      very often not a permission that is granted, so calls to users.lookupByEmail fail).
+    """
+    This is cheating... horribly. Slack can either retrieve a user if you already know
+    their ID (useless when syncing a user name from LDAP) or via email (useful, but
+    very often not a permission that is granted, so calls to users.lookupByEmail fail).
 
-      To work around this we are using an undocumented API `users/search` but for that we need
-      to know the enterprise ID and a team ID. For that we take the first cached user (presumably
-      one exists since to have a channel there will be at least one member), extract the IDs and
-      then hit the API.
+    To work around this we are using an undocumented API `users/search` but for that we need
+    to know the enterprise ID and a team ID. For that we take the first cached user (presumably
+    one exists since to have a channel there will be at least one member), extract the IDs and
+    then hit the API.
 
-      Note: This likely won't work for non-enterprise users, but those are the ones that are
-            most likely to have an LDAP server they want to sync to...
-      """
+    Note: This likely won't work for non-enterprise users, but those are the ones that are
+          most likely to have an LDAP server they want to sync to...
+    """
 
-      # otherwise known as the "guinea pig"
-      first_user = self._user_id_cache[list(self._user_id_cache.keys())[0]]
+    # otherwise known as the "guinea pig"
+    first_user = self._user_id_cache[list(self._user_id_cache.keys())[0]]
 
-      enterprise_id = first_user['enterprise_user']['enterprise_id']
-      team_id = first_user['enterprise_user']['teams'][0]
+    enterprise_id = first_user['enterprise_user']['enterprise_id']
+    team_id = first_user['enterprise_user']['teams'][0]
 
-      result = requests.post(
-        f'https://edgeapi.slack.com/cache/{enterprise_id}/{team_id}/users/search', 
-        f'{{"token":"{self.token}","query":"{display_name}","count":1,"fuzz":1,"uax29_tokenizer":false,"filter":"NOT deactivated"}}')
+    result = requests.post(
+      f'https://edgeapi.slack.com/cache/{enterprise_id}/{team_id}/users/search', 
+      f'{{"token":"{self.token}","query":"{display_name}","count":25,"fuzz":1,"uax29_tokenizer":false,"filter":"NOT deactivated"}}')
 
-      user = result.json()['results'][0]
-
-      self._update_cache(user)
-
-      return user
-
-    def get_user_by_id(self, user_id, humans_only = True):
-
-      if (user_id in self._user_id_cache):
-        return self._user_id_cache[user_id]
-
-      client = self._get_client()
-
-      try:
-        response = client.users_info(user=user_id)
-
-        user = response["user"]
+    for user in result.json()['results']:
+      pprint.pprint(user)
+      if user['profile']['display_name'] == display_name:
         self._update_cache(user)
-        
-        if (not humans_only or (not user['is_bot'] and ('is_workflow_bot' not in user or not user['is_workflow_bot']))):
-          return user
-        
-        return None
+        return user
 
-      except SlackApiError as e:
-          print(e)
+    return None
 
-    def get_channel_users(self, channel, humans_only = True):
-      client = self._get_client()
+  def get_user_by_id(self, user_id, humans_only = True):
 
-      try:
-          response = client.conversations_members(channel=args.channel)
+    if (user_id in self._user_id_cache):
+      return self._user_id_cache[user_id]
 
-          users = []
+    client = self._get_client()
 
-          for user_id in response["members"]:
-            response = client.users_info(user=user_id)
+    try:
+      response = client.users_info(user=user_id)
 
-            user = self.get_user_by_id(user_id)
+      user = response["user"]
+      self._update_cache(user)
+      
+      if (not humans_only or (not user['is_bot'] and ('is_workflow_bot' not in user or not user['is_workflow_bot']))):
+        return user
+      
+      return None
 
-            if (user):
-              users.append(user['name'])
-
-            #pprint.pprint(user)
-
-          return users
-
-      except SlackApiError as e:
-          print(e)
-
-    def add_users_to_channel(self, channel, users):
-      client = self._get_client()
-
-      user_ids = [self.get_user_by_display_name(user)['id'] for user in users]
-
-      try:
-          response = client.conversations_invite(channel=channel, users=user_ids)
-
-      except SlackApiError as e:
+    except SlackApiError as e:
         print(e)
 
+  def get_channel_users(self, channel, humans_only = True):
+    client = self._get_client()
 
-    def remove_user_from_channel(self, channel, display_name):
-      user = self.get_user_by_display_name(display_name)
+    try:
+        response = client.conversations_members(channel=args.channel)
 
-      client = self._get_client()
+        users = []
 
-      try:
-        response = client.conversations_kick(channel=channel, user=user['id'])
+        for user_id in response["members"]:
+          response = client.users_info(user=user_id)
 
-      except SlackApiError as e:
+          user = self.get_user_by_id(user_id)
+
+          if (user):
+            users.append(user['name'])
+
+        return users
+
+    except SlackApiError as e:
         print(e)
 
-    def remove_users_from_channel(self, channel, display_names):
-      [self.remove_user_from_channel(channel, display_name) for display_name in display_names]
+  def add_users_to_channel(self, channel, users):
+    client = self._get_client()
+
+    user_ids = [self.get_user_by_display_name(user)['id'] for user in users]
+
+    try:
+        response = client.conversations_invite(channel=channel, users=user_ids)
+
+    except SlackApiError as e:
+      print(e)
+
+
+  def remove_user_from_channel(self, channel, display_name):
+    user = self.get_user_by_display_name(display_name)
+
+    client = self._get_client()
+
+    try:
+      response = client.conversations_kick(channel=channel, user=user['id'])
+
+    except SlackApiError as e:
+      print(e)
+
+  def remove_users_from_channel(self, channel, display_names):
+    [self.remove_user_from_channel(channel, display_name) for display_name in display_names]
 
 parser = argparse.ArgumentParser(description='Sync a Slack channel\'s membership to an LDAP group')
 parser.add_argument('-t', '--token', required=True, help='Slack access token')
