@@ -1,5 +1,5 @@
-import os
 import pprint
+import logging
 import argparse
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -9,12 +9,18 @@ import requests
 def ldap_get_group_users(url, base, attribute, group):
   """Retrieve the membership list of `group` from the specified `attribute`"""
 
+  print(f'Getting users from LDAP group "{group}"...')
+
   con = ldap.initialize(url)
   con.set_option(ldap.OPT_REFERRALS, 0)
   con.simple_bind_s('', '')
   result = con.search_s(base, ldap.SCOPE_SUBTREE, 'cn=' + group, [attribute])
 
-  return [str(s, 'utf-8') for s in result[0][1][attribute]]
+  users = result[0][1][attribute]
+
+  logger.debug(f'Found {len(users)}')
+
+  return [str(s, 'utf-8') for s in users]
 
 class Slack(object):
   """Abstract away some of the interactions with Slack"""
@@ -38,6 +44,8 @@ class Slack(object):
     self._user_id_cache[user['id']] = user
 
   def get_user_by_display_name(self, display_name):
+    logger.debug(f'Looking up user by display name: {display_name}')
+
     if (display_name in self._display_name_cache):
       return self._display_name_cache[display_name]
 
@@ -66,7 +74,6 @@ class Slack(object):
       f'{{"token":"{self.token}","query":"{display_name}","count":25,"fuzz":1,"uax29_tokenizer":false,"filter":"NOT deactivated"}}')
 
     for user in result.json()['results']:
-      pprint.pprint(user)
       if user['profile']['display_name'] == display_name:
         self._update_cache(user)
         return user
@@ -74,6 +81,7 @@ class Slack(object):
     return None
 
   def get_user_by_id(self, user_id, humans_only = True):
+    logger.debug(f'Looking up user by ID: {user_id} (humans only? {humans_only})')
 
     if (user_id in self._user_id_cache):
       return self._user_id_cache[user_id]
@@ -95,6 +103,9 @@ class Slack(object):
         print(e)
 
   def get_channel_users(self, channel, humans_only = True):
+
+    print(f'Getting users for channel {channel}')
+
     client = self._get_client()
 
     try:
@@ -102,7 +113,9 @@ class Slack(object):
 
         users = []
 
-        for user_id in response["members"]:
+        logger.debug(f"Found {len(response['members'])} in channel {channel}.")
+
+        for user_id in response['members']:
           response = client.users_info(user=user_id)
 
           user = self.get_user_by_id(user_id)
@@ -110,12 +123,16 @@ class Slack(object):
           if (user):
             users.append(user['name'])
 
+        print(f' -> found {len(users)} users')
+
         return users
 
     except SlackApiError as e:
         print(e)
 
   def add_users_to_channel(self, channel, users):
+    print(f'Adding {len(users)} users to {channel}...')
+
     client = self._get_client()
 
     user_ids = [self.get_user_by_display_name(user)['id'] for user in users]
@@ -128,6 +145,8 @@ class Slack(object):
 
 
   def remove_user_from_channel(self, channel, display_name):
+    print(f'Kicking {display_name} from {channel}...')
+
     user = self.get_user_by_display_name(display_name)
 
     client = self._get_client()
@@ -140,6 +159,26 @@ class Slack(object):
 
   def remove_users_from_channel(self, channel, display_names):
     [self.remove_user_from_channel(channel, display_name) for display_name in display_names]
+
+def _init_logging(debug = False):
+  logger = logging.getLogger(__name__)
+
+  logger.setLevel(logging.DEBUG if debug else logging.INFO)
+
+  # create console handler and set level to debug
+  ch = logging.StreamHandler()
+  ch.setLevel(logging.DEBUG)
+
+  # create formatter
+  formatter = logging.Formatter('[%(asctime)s | %(levelname)s: %(funcName)20s()] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+
+  # add formatter to ch
+  ch.setFormatter(formatter)
+
+  # add ch to logger
+  logger.addHandler(ch)
+
+  return logger
 
 parser = argparse.ArgumentParser(description='Sync a Slack channel\'s membership to an LDAP group')
 parser.add_argument('-t', '--token', required=True, help='Slack access token')
@@ -155,9 +194,11 @@ parser.add_argument('-g', '--group', required=True, help='LDAP group to query fo
 parser.add_argument('-m', '--welcome-message', help="Welcome message for new members. New members will be @mentioned.")
 parser.add_argument('--remove', action='store_true', help='remove members not in group (default is to just add)')
 parser.add_argument('--dryrun', action='store_true', help='don\'t actually make any changes')
-parser.add_argument('--debug', action='store_true', help='largely unhelpful spew')
+parser.add_argument('-d', '--debug', action='store_true', help='largely unhelpful spew')
 
 args = parser.parse_args()
+
+logger = _init_logging(debug=args.debug)
 
 users_in_group = ldap_get_group_users(args.ldap_url, args.ldap_base, args.ldap_attribute, args.group)
 
@@ -167,7 +208,10 @@ users_in_channel = slack.get_channel_users(args.channel)
 users_to_add = [user for user in users_in_group if user not in users_in_channel]
 users_to_remove = [user for user in users_in_channel if user not in users_in_group]
 
-slack.add_users_to_channel(args.channel, users_to_add)
+if (len(users_to_add) > 0):
+  slack.add_users_to_channel(args.channel, users_to_add)
+else:
+  print("No users to add.")
 
 if (args.remove):
   slack.remove_users_from_channel(args.channel, users_to_remove)
@@ -176,4 +220,4 @@ elif (len(users_to_remove)):
   print(*users_to_remove, sep=', ')
   print()
 else:
-  print('No users to remove, even if the --remove flag had been set')
+  print('No users to remove, even if the --remove flag had been set.')
