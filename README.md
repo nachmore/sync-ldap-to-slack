@@ -64,3 +64,22 @@ This script uses an `xoxs-` token which represents you on Slack. **NEVER** share
 The token should now be presented to you in a dialog that you can copy from.
 
 ![Animation of token retrieval](get-token.gif)
+
+## Installation
+
+*tested on Windows and Fedora*
+
+No fancy packaging at this point:
+
+1. Grab [sync-ldap-to-slack.py](https://raw.githubusercontent.com/nachmore/sync-ldap-to-slack/main/sync-ldap-to-slack.py)
+2. Install any dependencies:
+   1. `pip install slack_sdk`
+   1. `pip install python-ldap`
+      1. If you get `fatal error: Python.h: No such file or directory`
+         1.  (Fedora etc) `sudo yum install python3-devel`
+         2.  (Ubuntu etc) `sudo apt-get install python3-dev`
+      2. If you get `fatal error: lber.h: No such file or directory`
+         1. (Fedora etc) `sudo yum install openldap-devel`
+         2. (Ubunte etc) `sudo apt-get install libsasl2-dev libldap2-dev libssl-dev`
+      3. (Windows) You may need to install some [prerequisites](https://www.python-ldap.org/en/python-ldap-3.3.0/installing.html#build-prerequisites), in particular `OpenLDAP` (optional items not required)
+   2. `pip install requests`
