@@ -30,6 +30,8 @@ class Slack(object):
     self.client = None
     self._user_id_cache = {}
     self._display_name_cache = {}
+    self._enterprise_id = None
+    self._team_id = None
 
   def _get_client(self):
     if (not self.client):
@@ -42,6 +44,29 @@ class Slack(object):
 
     self._display_name_cache[user['profile']['display_name']] = user
     self._user_id_cache[user['id']] = user
+
+  def _get_enterprise_details(self):
+
+    if (self._enterprise_id and self._team_id):
+      return (self._enterprise_id, self._team_id)
+
+    logger.debug('Getting enterprise details...')
+
+    client = self._get_client()
+
+    try:
+      response = client.users_list(limit=1)
+
+      user = response['members'][0]
+      enterprise_user = user['enterprise_user']
+
+      self._enterprise_id = enterprise_user['enterprise_id']
+      self._team_id = user['team_id']
+
+      return (self._enterprise_id, self._team_id)
+
+    except SlackApiError as e:
+        print(e)
 
   def get_user_by_display_name(self, display_name):
     logger.debug(f'Looking up user by display name: {display_name}')
@@ -63,20 +88,35 @@ class Slack(object):
           most likely to have an LDAP server they want to sync to...
     """
 
-    # otherwise known as the "guinea pig"
-    first_user = self._user_id_cache[list(self._user_id_cache.keys())[0]]
-
-    enterprise_id = first_user['enterprise_user']['enterprise_id']
-    team_id = first_user['enterprise_user']['teams'][0]
+    (enterprise_id, team_id) = self._get_enterprise_details()
 
     result = requests.post(
-      f'https://edgeapi.slack.com/cache/{enterprise_id}/{team_id}/users/search', 
+      f'https://edgeapi.slack.com/cache/{enterprise_id}/{team_id}/users/search',
       f'{{"token":"{self.token}","query":"{display_name}","count":25,"fuzz":1,"uax29_tokenizer":false,"filter":"NOT deactivated"}}')
 
     for user in result.json()['results']:
       if user['profile']['display_name'] == display_name:
         self._update_cache(user)
         return user
+
+    return None
+
+  def get_channel_by_name(self, name):
+    logger.debug(f'Looking up channel by name: {name}')
+
+    """
+    This is also cheating... see note in `get_user_by_display_name`
+    """
+
+    (enterprise_id, team_id) = self._get_enterprise_details()
+
+    result = requests.post(
+      f'https://edgeapi.slack.com/cache/{enterprise_id}/{team_id}/channels/search',
+      f'{{"token":"{self.token}","query":"{name}","count":25,"fuzz":1,"uax29_tokenizer":false}}')
+
+    for channel in result.json()['results']:
+      if channel['name'] == name:
+        return channel['id']
 
     return None
 
@@ -109,7 +149,7 @@ class Slack(object):
     client = self._get_client()
 
     try:
-        response = client.conversations_members(channel=args.channel)
+        response = client.conversations_members(channel=channel)
 
         users = []
 
@@ -182,7 +222,11 @@ def _init_logging(debug = False):
 
 parser = argparse.ArgumentParser(description='Sync a Slack channel\'s membership to an LDAP group')
 parser.add_argument('-t', '--token', required=True, help='Slack access token')
-parser.add_argument('-c', '--channel', required=True, help='Channel ID (not name!)')
+
+channel_arg_group = parser.add_mutually_exclusive_group(required=True)
+channel_arg_group.add_argument('-i', '--channel-id', help='Channel ID (not name!)')
+channel_arg_group.add_argument('-c', '--channel', help='Channel name')
+
 parser.add_argument('-u', '--ldap-url', required=True, help='URL of your LDAP endpoint. usually LDAP://...')
 parser.add_argument('-b', '--ldap-base', required=True, help='Search base for finding the LDAP group. For example, ou=groups,o=awesome.co')
 
@@ -203,18 +247,20 @@ logger = _init_logging(debug=args.debug)
 users_in_group = ldap_get_group_users(args.ldap_url, args.ldap_base, args.ldap_attribute, args.group)
 
 slack = Slack(args.token)
-users_in_channel = slack.get_channel_users(args.channel)
+channel_id = args.channel_id or slack.get_channel_by_name(args.channel)
+
+users_in_channel = slack.get_channel_users(channel_id)
 
 users_to_add = [user for user in users_in_group if user not in users_in_channel]
 users_to_remove = [user for user in users_in_channel if user not in users_in_group]
 
 if (len(users_to_add) > 0):
-  slack.add_users_to_channel(args.channel, users_to_add)
+  slack.add_users_to_channel(channel_id, users_to_add)
 else:
   print("No users to add.")
 
 if (args.remove):
-  slack.remove_users_from_channel(args.channel, users_to_remove)
+  slack.remove_users_from_channel(channel_id, users_to_remove)
 elif (len(users_to_remove)):
   print('The following users would have been removed (to remove them rerun with --remove set):')
   print(*users_to_remove, sep=', ')
