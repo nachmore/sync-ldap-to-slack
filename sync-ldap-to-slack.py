@@ -16,6 +16,9 @@ def ldap_get_group_users(url, base, attribute, group):
   con.simple_bind_s('', '')
   result = con.search_s(base, ldap.SCOPE_SUBTREE, 'cn=' + group, [attribute])
 
+  if (len(result) == 0):
+    return None
+
   users = result[0][1][attribute]
 
   logger.debug(f'Found {len(users)}')
@@ -245,6 +248,10 @@ args = parser.parse_args()
 logger = _init_logging(debug=args.debug)
 
 users_in_group = ldap_get_group_users(args.ldap_url, args.ldap_base, args.ldap_attribute, args.group)
+
+if (not users_in_group):
+  print(f"Error: Couldn't find LDAP group '{args.group}'!")
+  exit()
 
 slack = Slack(args.token)
 channel_id = args.channel_id or slack.get_channel_by_name(args.channel)
