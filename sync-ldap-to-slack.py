@@ -256,6 +256,14 @@ if (not users_in_group):
 slack = Slack(args.token)
 channel_id = args.channel_id or slack.get_channel_by_name(args.channel)
 
+if (not channel_id):
+  if (args.channel_id):
+    print(f'Could not find Slack group with ID "{args.channel_id}"!')
+  else:
+    print(f'Could not find Slack Channel "{args.channel}"!')
+
+  exit()
+
 users_in_channel = slack.get_channel_users(channel_id)
 
 users_to_add = [user for user in users_in_group if user not in users_in_channel]
