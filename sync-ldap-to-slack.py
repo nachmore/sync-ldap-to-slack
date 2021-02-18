@@ -238,8 +238,8 @@ parser.add_argument('-b', '--ldap-base', required=True, help='Search base for fi
 parser.add_argument('-a', '--ldap-attribute', default="memberuid", help='attribute to retrieve during LDAP queries. This should be the list of users within a group that will be used to sync with Slack')
 
 parser.add_argument('-g', '--group', required=True, help='LDAP group to query for')
-parser.add_argument('-m', '--welcome-message', help="Welcome message for new members. New members will be @mentioned.")
 parser.add_argument('--remove', action='store_true', help='remove members not in group (default is to just add)')
+parser.add_argument('--remove-only', action='store_true', help='Don\'t add missing users, rather only remove users that are not in the group from the channel.\nUseful for controlling access to a channel without forcing people to be a member.')
 parser.add_argument('--dryrun', action='store_true', help='don\'t actually make any changes')
 parser.add_argument('-d', '--debug', action='store_true', help='largely unhelpful spew')
 
@@ -269,16 +269,22 @@ users_in_channel = slack.get_channel_users(channel_id)
 users_to_add = [user for user in users_in_group if user not in users_in_channel]
 users_to_remove = [user for user in users_in_channel if user not in users_in_group]
 
-if (len(users_to_add) > 0):
-  slack.add_users_to_channel(channel_id, users_to_add)
+if (not args.remove_only):
+  if (users_to_add):
+    slack.add_users_to_channel(channel_id, users_to_add)
+  else:
+    print('No users to add!')
 else:
-  print("No users to add.")
+  print('Skipping add since --remove-only is set...')
 
-if (args.remove):
-  slack.remove_users_from_channel(channel_id, users_to_remove)
+if (args.remove or args.remove_only):
+  if (users_to_remove):
+    slack.remove_users_from_channel(channel_id, users_to_remove)
+  else:
+    print('No users to remove!')
 elif (len(users_to_remove)):
-  print('The following users would have been removed (to remove them rerun with --remove set):')
+  print('The following users would have been removed (to remove them rerun with --remove or --remove-only set):')
   print(*users_to_remove, sep=', ')
   print()
 else:
-  print('No users to remove, even if the --remove flag had been set.')
+  print('No users to remove, even if the --remove / --remove-only flag had been set.')

@@ -8,7 +8,7 @@ Slack has a bunch of fancy connectors to sync various enterprise groups to defau
 
  ```
 usage: sync-ldap-to-slack.py [-h] -t TOKEN (-i CHANNEL_ID | -c CHANNEL) -u LDAP_URL -b LDAP_BASE [-a LDAP_ATTRIBUTE]
-                             -g GROUP [-m WELCOME_MESSAGE] [--remove] [--dryrun] [-d]
+                             -g GROUP [--remove] [--remove-only] [--dryrun] [-d]
 
 Sync a Slack channel's membership to an LDAP group
 
@@ -29,9 +29,9 @@ optional arguments:
                         that will be used to sync with Slack
   -g GROUP, --group GROUP
                         LDAP group to query for
-  -m WELCOME_MESSAGE, --welcome-message WELCOME_MESSAGE
-                        Welcome message for new members. New members will be @mentioned.
   --remove              remove members not in group (default is to just add)
+  --remove-only         Don't add missing users, rather only remove users that are not in the group from the channel.
+                        Useful for controlling access to a channel without forcing people to be a member.
   --dryrun              don't actually make any changes
   -d, --debug           largely unhelpful spew
   ```
