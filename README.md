@@ -57,9 +57,10 @@ optional arguments:
 This script uses an `xoxs-` token which represents you on Slack. **NEVER** share this with anyone. EVER.
 
 1. Go to https://my.slack.com/home and log in if needed
-2. Copy `window.prompt("your api token is: ", TS.boot_data.api_token)`
-3. In your browser type `javascript:` in the URL bar
-4. Paste `window.prompt("your api token is: ", TS.boot_data.api_token)` & press enter
+2. Ensure that you are in a workspace (if you're at the workspace selection screen, select the workspace that you are going to run this script against)
+3. Copy `window.prompt("your api token is: ", TS.boot_data.api_token)`
+4. In your browser type `javascript:` in the URL bar
+5. Paste `window.prompt("your api token is: ", TS.boot_data.api_token)` & press enter
 
 The token should now be presented to you in a dialog that you can copy from.
 
